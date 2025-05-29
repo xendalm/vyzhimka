@@ -1,0 +1,9 @@
+LEN = 50
+DATASET_NAME = "hgissbkh/seahorse"
+QUESTION = "conciseness"
+MAX_INPUT_LENGTH = 2048
+FORMAT = "текст:\n {} саммари:\n {}"
+FORMAT_GOOGLE = "premise: {} hypothesis: {}"
+ZERO_TOKEN = '▁0'
+ONE_TOKEN = '▁1'
+SEED = 42
