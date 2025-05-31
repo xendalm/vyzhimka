@@ -6,11 +6,11 @@ This repository contains code and experiments for evaluating the impact of synth
 
 Models:
 - FRED-T5-large (used for fine-tuning on summarization task and DPO)
-- MT5-large (SEAHORSE reward model used for scoring summaries to apply in DPO alignment)
+- MT5-large (SEAHORSE reward model used to score summaries for use in DPO alignment)
 
 Data:
 - Open-source Russian summarization datasets (MLSUM, Gazeta, XLSum, WikiLingua, etc.)
-- Synthetic data (instruction, input, summary pairs) generated using Gemini 2.0
+- Synthetic data generated using Gemini 2.0 (based on Taiga/N+1 and filtered Fontanka)
 
 Evaluation:
 - Standard auto-evaluation metrics (Rouge, BLEU, BERTScore, etc.)
