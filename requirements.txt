@@ -1,0 +1,17 @@
+datasets==3.5.0
+evaluate==0.4.3
+nltk==3.8.1
+numpy==2.2.6
+pandas==2.2.3
+scikit_learn==1.6.1
+scipy==1.15.3
+sentence_transformers==4.1.0
+torch==2.5.1
+tqdm==4.67.1
+transformers==4.51.3
+absl-py
+rouge-score
+bert-score
+sacrebleu
+accelerate
+tensorboard
