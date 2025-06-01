@@ -25,5 +25,3 @@ Evaluation:
 - `seahorse_metric` - code for training, validation and evaluation of SEAHORSE reward model
 
 # Results
-
-*TBD*

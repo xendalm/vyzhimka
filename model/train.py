@@ -33,18 +33,20 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 MODEL_NAME = "ai-forever/FRED-T5-large"
+OUTPUT_DIR = "fred-t5_summarization_synth_2"
 
-OUTPUT_DIR = "fred-t5_summarization_2"
-
-NUM_EPOCHS = 6
+NUM_EPOCHS = 8
 TRAIN_BATCH_SIZE = 8
-GRADIENT_ACCUMULATION_STEPS = 4
+GRADIENT_ACCUMULATION_STEPS = 8
 EVAL_BATCH_SIZE = 64
-LEARNING_RATE = 5e-4
-WEIGHT_DECAY = 0.02
+LEARNING_RATE = 4e-4
+WEIGHT_DECAY = 0.015
 SAVE_TOTAL_LIMIT = 2
 REPORT_TO = "tensorboard"
-WARMUP_RATIO = 0.05
+WARMUP_RATIO = 0.1
+SCHEDULER_TYPE = "linear"
+TRAINING_DATA = "./data/synthetic_data"
+# TRAINING_DATA = "./data/filtered_dedup_data"
 
 use_subset = False
 subset_train_size = 10000
@@ -92,7 +94,7 @@ def compute_metrics(eval_preds):
 if __name__ == "__main__":
     utils.set_seed(SEED)
 
-    data = load_from_disk("filtered_dedup_data")
+    data = load_from_disk(TRAINING_DATA)
     datasets = data.train_test_split(test_size=0.05, seed=42, shuffle=True)
     datasets["validation"] = datasets.pop("test")
 
@@ -156,7 +158,7 @@ if __name__ == "__main__":
         gradient_accumulation_steps=GRADIENT_ACCUMULATION_STEPS,
         optim="adafactor",
         learning_rate=LEARNING_RATE,
-        lr_scheduler_type="linear",
+        lr_scheduler_type=SCHEDULER_TYPE,
         weight_decay=WEIGHT_DECAY,
         warmup_ratio=WARMUP_RATIO,
         max_grad_norm=1.0,
@@ -177,6 +179,7 @@ if __name__ == "__main__":
         load_best_model_at_end=True,
         metric_for_best_model="eval_loss", 
         greater_is_better=False,
+        save_safetensors=False,
         logging_dir=f"{OUTPUT_DIR}/logs", # Явно указываем директорию логов
         # optim="adafactor", # Раскомментируйте, если хотите использовать Adafactor как в статье
         # gradient_checkpointing=True, # Раскомментируйте для экономии памяти (замедлит шаг)
@@ -185,7 +188,7 @@ if __name__ == "__main__":
     )
 
 
-    data_collator = DataCollatorForSeq2Seq(tokenizer, model=model)
+    data_collator = DataCollatorForSeq2Seq(tokenizer, model=model, padding=True)
 
     trainer = Seq2SeqTrainer(
         model=model,
