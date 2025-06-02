@@ -34,17 +34,18 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-MODEL_PATH = "fred-t5_summarization_synth"
+MODEL_PATH = "fred-t5_summarization_dpo"
 TOKENIZER_PATH = MODEL_PATH
 TEST_DATA_PATH = "./data/filtered_test"
-OUTPUT_FILE = "./eval/results/evaluation_metrics_synth_3.json"
-PREDICTIONS_FILE = "./eval/results/predictions_output_synth_3.json"
+OUTPUT_FILE = "./eval/results/evaluation_metrics_dpo.json"
+PREDICTIONS_FILE = "./eval/results/predictions_output_dpo.json"
 
 EVAL_BATCH_SIZE = 55
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 LABSE_MODEL_NAME = 'sentence-transformers/LaBSE'
 
 GENERATION_CONFIG = GenerationConfig(
+    # length_penalty=-2,
     max_length=MAX_TARGET_LENGTH + 1,
     num_beams=NUM_BEAMS,
     min_length=MIN_GENERATION_LENGTH,
@@ -183,7 +184,13 @@ if __name__ == "__main__":
 
     logger.info("Calculating average generation length...")
     pred_tokens = tokenizer(cleaned_predictions, truncation=False, padding=False)["input_ids"]
-    results['gen_len'] = np.mean([len(t) for t in pred_tokens])
+    results['gen_len_mean'] = np.mean([len(t) for t in pred_tokens])
+    results['gen_len_std'] = np.std([len(t) for t in pred_tokens])
+
+
+    logger.info("Calculating average compression ratio...")
+    results['compression_ratio_mean'] = np.mean([len(t) / len(r) for t, r in zip(cleaned_predictions, cleaned_references)])
+    results['compression_ratio_std'] = np.std([len(t) / len(r) for t, r in zip(cleaned_predictions, cleaned_references)])
 
     metrics_time = time() - metrics_start_time
     logger.info(f"Metrics time: {metrics_time:.2f} seconds.")

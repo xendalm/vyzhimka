@@ -49,7 +49,7 @@ SUM_GENERATION_CONFIG = GenerationConfig(
     num_return_sequences=NUM_GENERATIONS_PER_TEXT,
 )
 
-SCORING_BATCH_SIZE = 120
+SCORING_BATCH_SIZE = 100
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 SEAHORSE_FORMAT_GOOGLE = "premise: {} hypothesis: {}"
@@ -101,10 +101,10 @@ if __name__ == "__main__":
         logger.error(f"Error loading dataset from {TRAIN_DATA_PATH}: {e}")
         exit(1)
 
-    subset_size = 100 # Example subsetting
+    subset_size = 10000
     if len(train_dataset) > subset_size:
         logger.info(f"Using subset of training data ({subset_size} examples) for preference generation...")
-        train_dataset = train_dataset.shuffle(seed=SEED).select(range(subset_size))
+        train_dataset = train_dataset.select(range(subset_size))
         logger.info(f"Using subset of training data: {len(train_dataset)} examples")
 
     try:
@@ -263,7 +263,7 @@ if __name__ == "__main__":
 
         scores = [i for _, i in summaries_with_scores]
 
-        if chosen_summary != rejected_summary and (chosen_score - rejected_score) > 0.05:
+        if chosen_summary != rejected_summary and (chosen_score - rejected_score) > 0.03:
              preference_data.append({
                  "text": text,
                  "chosen": chosen_summary,

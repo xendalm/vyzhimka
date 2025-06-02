@@ -21,7 +21,6 @@ from transformers import (
     Seq2SeqTrainer,
     Seq2SeqTrainingArguments,
     DataCollatorForSeq2Seq,
-    GenerationConfig
 )
 import evaluate
 
@@ -33,20 +32,19 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 MODEL_NAME = "ai-forever/FRED-T5-large"
-OUTPUT_DIR = "fred-t5_summarization_synth_2"
+OUTPUT_DIR = "fred-t5_summarization_combined"
+TRAINING_DATA = "./data/combined_data"
 
-NUM_EPOCHS = 8
+NUM_EPOCHS = 6
 TRAIN_BATCH_SIZE = 8
-GRADIENT_ACCUMULATION_STEPS = 8
+GRADIENT_ACCUMULATION_STEPS = 6
 EVAL_BATCH_SIZE = 64
-LEARNING_RATE = 4e-4
+LEARNING_RATE = 3e-4
 WEIGHT_DECAY = 0.015
 SAVE_TOTAL_LIMIT = 2
 REPORT_TO = "tensorboard"
 WARMUP_RATIO = 0.1
 SCHEDULER_TYPE = "linear"
-TRAINING_DATA = "./data/synthetic_data"
-# TRAINING_DATA = "./data/filtered_dedup_data"
 
 use_subset = False
 subset_train_size = 10000
@@ -139,17 +137,6 @@ if __name__ == "__main__":
 
     model = T5ForConditionalGeneration.from_pretrained(MODEL_NAME)
 
-    # generation_config = GenerationConfig()
-    # generation_config.max_length = MAX_TARGET_LENGTH + 1
-    # generation_config.num_beams = NUM_BEAMS
-    # generation_config.min_length = MIN_GENERATION_LENGTH
-    # generation_config.no_repeat_ngram_size = NO_REPEAT_NGRAM_SIZE
-    # generation_config.early_stopping = True
-    # generation_config.decoder_start_token_id = model.config.decoder_start_token_id
-    # generation_config.eos_token_id = model.config.eos_token_id
-    # generation_config.pad_token_id = model.config.pad_token_id
-
-
     training_args = Seq2SeqTrainingArguments(
         output_dir=OUTPUT_DIR,
         num_train_epochs=NUM_EPOCHS,
@@ -169,10 +156,6 @@ if __name__ == "__main__":
         logging_strategy="steps",
         logging_steps=logging_steps,
         save_total_limit=SAVE_TOTAL_LIMIT,
-        ## generation_max_length=MAX_TARGET_LENGTH+1,
-        ## generation_num_beams=NUM_BEAMS,
-        # predict_with_generate=True,
-        # generation_config=generation_config,
         bf16=torch.cuda.is_bf16_supported(), 
         fp16=not torch.cuda.is_bf16_supported(),
         report_to=REPORT_TO,
@@ -180,11 +163,10 @@ if __name__ == "__main__":
         metric_for_best_model="eval_loss", 
         greater_is_better=False,
         save_safetensors=False,
-        logging_dir=f"{OUTPUT_DIR}/logs", # Явно указываем директорию логов
-        # optim="adafactor", # Раскомментируйте, если хотите использовать Adafactor как в статье
-        # gradient_checkpointing=True, # Раскомментируйте для экономии памяти (замедлит шаг)
+        logging_dir=f"{OUTPUT_DIR}/logs",
+        # gradient_checkpointing=True,
         seed=SEED,
-        data_seed=SEED, # Важно для воспроизводимости при работе с подвыборками
+        data_seed=SEED,
     )
 
 
@@ -197,7 +179,6 @@ if __name__ == "__main__":
         eval_dataset=final_datasets["validation"],
         processing_class=tokenizer,
         data_collator=data_collator,
-        # compute_metrics=compute_metrics,
     )
 
     logger.info("Starting training...")
@@ -219,8 +200,6 @@ if __name__ == "__main__":
     trainer.save_metrics("eval", eval_result)
     logger.info(f"Metrics: {eval_result}")
 
-    del model
-    del trainer
-    del data_collator
+    del model, trainer, data_collator
     gc.collect()
     torch.cuda.empty_cache()
