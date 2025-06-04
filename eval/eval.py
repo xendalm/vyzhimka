@@ -36,11 +36,14 @@ logger = logging.getLogger(__name__)
 
 MODEL_PATH = "fred-t5_summarization_dpo"
 TOKENIZER_PATH = MODEL_PATH
-TEST_DATA_PATH = "./data/filtered_test"
-OUTPUT_FILE = "./eval/results/evaluation_metrics_dpo.json"
-PREDICTIONS_FILE = "./eval/results/predictions_output_dpo.json"
+# TEST_DATA_PATH = "data/synth_test"
+TEST_DATA_PATH = "data/filtered_test"
+# OUTPUT_DIR = "./eval/synth_res"
+OUTPUT_DIR = "./eval/results"
+OUTPUT_FILE = OUTPUT_DIR+"/evaluation_metrics_dpo_combined_1.json"
+PREDICTIONS_FILE = OUTPUT_DIR+"/predictions_output_dpo_combined_!.json"
 
-EVAL_BATCH_SIZE = 55
+EVAL_BATCH_SIZE = 64
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 LABSE_MODEL_NAME = 'sentence-transformers/LaBSE'
 
@@ -218,15 +221,3 @@ if __name__ == "__main__":
         json.dump(predictions_data, f, ensure_ascii=False, indent=4)
 
     logger.info("Done.")
-
-# {                                                                                                    
-#     "rouge1": 0.296,                                                                                 
-#     "rouge2": 0.17,                                                                                  
-#     "rougeL": 0.287,                                                                                 
-#     "bleu": 0.143,                                                                                   
-#     "meteor": 0.424,                                                                                 
-#     "chrf": 51.962,                                                                                  
-#     "bertscore_f1": 0.772,                                                                           
-#     "labse_similarity": 0.869,                                                                       
-#     "gen_len": 226.194                                                                               
-# }  

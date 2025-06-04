@@ -172,3 +172,7 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+fred-t5_*/
+eval/results
+eval/synth_res
