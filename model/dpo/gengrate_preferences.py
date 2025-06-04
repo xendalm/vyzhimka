@@ -32,10 +32,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-SUMMARIZATION_MODEL_PATH = "fred-t5_summarization_synth_2"
+SUMMARIZATION_MODEL_PATH = "fred-t5_summarization_combined"
 SCORING_MODEL_NAME = "google/seahorse-large-q6"
-TRAIN_DATA_PATH = "data/synthetic_data"
-OUTPUT_PREFERENCE_DATA_FILE = "data/preference_data_conciseness.jsonl"
+TRAIN_DATA_PATH = "data/combined_train"
+OUTPUT_PREFERENCE_DATA_FILE = "data/preference_data_conciseness_2.jsonl"
 
 NUM_GENERATIONS_PER_TEXT = 6
 GENERATION_BATCH_SIZE = 45
@@ -49,7 +49,7 @@ SUM_GENERATION_CONFIG = GenerationConfig(
     num_return_sequences=NUM_GENERATIONS_PER_TEXT,
 )
 
-SCORING_BATCH_SIZE = 100
+SCORING_BATCH_SIZE = 120
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 SEAHORSE_FORMAT_GOOGLE = "premise: {} hypothesis: {}"
@@ -84,7 +84,7 @@ def preprocess_for_scoring(texts, summaries, tokenizer):
     inputs = [SEAHORSE_FORMAT_GOOGLE.format(text, summary) for text, summary in zip(texts, summaries)]
     tokenized = tokenizer(
         inputs,
-        max_length=MAX_INPUT_LENGTH + MAX_TARGET_LENGTH + 5,
+        max_length=MAX_INPUT_LENGTH + MAX_TARGET_LENGTH + 10,
         truncation=True,
         padding=False, # Defer padding to DataCollator
     )
@@ -101,9 +101,10 @@ if __name__ == "__main__":
         logger.error(f"Error loading dataset from {TRAIN_DATA_PATH}: {e}")
         exit(1)
 
-    subset_size = 10000
+    subset_size = 15000
     if len(train_dataset) > subset_size:
         logger.info(f"Using subset of training data ({subset_size} examples) for preference generation...")
+        # train_dataset = train_dataset.shuffle(seed=SEED).select(range(subset_size))
         train_dataset = train_dataset.select(range(subset_size))
         logger.info(f"Using subset of training data: {len(train_dataset)} examples")
 
