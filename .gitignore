@@ -176,3 +176,4 @@ cython_debug/
 fred-t5_*/
 eval/results
 eval/synth_res
+data/

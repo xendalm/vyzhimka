@@ -24,13 +24,16 @@ GEMINI_GENERATION_CONFIG = genai.GenerationConfig(
     max_output_tokens=300,
     temperature=0.8
 )
-MIN_DELAY_BETWEEN_REQUESTS = 5
+MIN_DELAY_BETWEEN_REQUESTS = 4
 QUANTILE_LEVELS = [0.25, 0.50, 0.75]
 SAVE_EVERY_N_ITEMS = 10
 RETRY_DELAY_SECONDS = 10
 MAX_RETRIES = 3
 
-SUMMARIZATION_PROMPT_TEMPLATE = """Ты — эксперт по созданию кратких изложений текстов (саммари). Твоя задача — максимально сократить текст, выделив только основную суть. Результат должен быть кратким, не более 40% от длины исходного текста и менее 250 слов. Саммари должно быть на русском языке, грамматически корректным и не искажать факты.
+SUMMARIZATION_PROMPT_TEMPLATE = """
+Ты — эксперт по созданию кратких изложений текстов (саммари). Твоя задача — максимально сократить текст, выделив только основную суть.
+Саммари должно быть на русском языке, грамматически корректным, не искажать факты и при этом не быть копией исходного текста.
+Результат должен быть в три раза короче исходного текста, не более 40% от длины исходного текста.
 
 Текст:
 {text_to_summarize}
@@ -38,35 +41,62 @@ SUMMARIZATION_PROMPT_TEMPLATE = """Ты — эксперт по созданию
 Саммари:"""
 
 
-def clean_text_advanced(raw_text):
+def clean_text(raw_text):
     if not isinstance(raw_text, str):
         return ""
+
     text = raw_text
-    # Remove HTML comments first
+
+    # Remove HTML comments
     text = re.sub(r'<!--.*?-->', '', text, flags=re.DOTALL)
 
-    # Remove specific MSO style definitions and font faces (order matters sometimes)
+    # Remove CSS @font-face definitions
     text = re.sub(r'@font-face\s*\{[^\}]*\}', '', text, flags=re.DOTALL | re.IGNORECASE)
-    text = re.sub(r'(p|li|div)\.MsoNormal[,\s][^\}]*\}', '', text, flags=re.DOTALL | re.IGNORECASE)
-    text = re.sub(r'\.(MsoChpDefault|MsoPapDefault|apple-converted-space)\s*\{[^\}]*\}', '', text,
+
+    # Remove common MS Word style blocks
+    text = re.sub(r'\.(MsoNormal|MsoChpDefault|MsoPapDefault|apple-converted-space)\s*\{[^\}]*\}', '', text,
                   flags=re.DOTALL | re.IGNORECASE)
-    text = re.sub(r'@page\s*Section1\s*\{[^\}]*\}', '', text, flags=re.DOTALL | re.IGNORECASE)
-    text = re.sub(r'div\.Section1\s*\{[^\}]*\}', '', text, flags=re.DOTALL | re.IGNORECASE)
-    text = re.sub(r'/\*.*?\*/', '', text, flags=re.DOTALL)  # Remove C-style comments
 
-    # Use BeautifulSoup for general HTML tag stripping
+    # Remove CSS page section definitions
+    text = re.sub(r'@page\s+Section\d+\s*\{[^\}]*\}', '', text, flags=re.DOTALL | re.IGNORECASE)
+
+    # Remove general C-style comments /* ... */
+    text = re.sub(r'/\*.*?\*/', '', text, flags=re.DOTALL)
+
+    # Remove inline JavaScript and CSS inside <script> or <style> tags
     soup = BeautifulSoup(text, "html.parser")
-
-    # Remove script and style tags explicitly
     for s_tag in soup(['script', 'style']):
         s_tag.decompose()
 
-    text_content = soup.get_text(separator=' ', strip=True)
+    # Extract plain text from HTML
+    text = soup.get_text(separator=' ', strip=True)
 
-    # Normalize whitespace: replace multiple spaces/newlines with a single space
-    text_content = re.sub(r'\s+', ' ', text_content).strip()
+    # Remove URLs (http, https, www)
+    text = re.sub(r'https?://\S+|www\.\S+', '', text)  # Remove URLs
 
-    return text_content
+    # Remove emails
+    text = re.sub(r'\b[\w.-]+?@\w+?\.\w+?\b', '', text)  # Remove email addresses
+
+    # Remove leftover HTML entities (e.g., &nbsp;)
+    text = re.sub(r'&[a-zA-Z]+;', ' ', text)  # Remove HTML entities
+
+    # Remove dates (basic ISO and common formats)
+    text = re.sub(r'\b\d{1,2}[./-]\d{1,2}[./-]\d{2,4}\b', '', text)  # Remove dates like 12.05.2023 or 12/05/23
+
+    # Remove time patterns (e.g., 13:45, 9:00 AM)
+    text = re.sub(r'\b\d{1,2}:\d{2}(?:\s?[APMapm]{2})?\b', '', text)  # Remove times like 14:00, 9:30 AM
+
+    # Remove phone numbers
+    text = re.sub(r'\+?\d[\d\s().-]{6,}\d', '', text)  # Remove phone numbers
+
+    # Remove currency amounts (e.g., $20, 500₽, €300)
+    text = re.sub(r'[$€₽¥£]\s?\d+[.,]?\d*', '', text)  # Remove money values
+    text = re.sub(r'\d+[.,]?\d*\s?(USD|EUR|RUB|GBP|JPY)', '', text, flags=re.IGNORECASE)  # Remove money with currency
+
+    # Remove multiple whitespace characters
+    text = re.sub(r'\s+', ' ', text).strip()  # Normalize whitespace
+
+    return text
 
 
 def smart_truncate_text(text, tokenizer_instance, max_tokens_for_text_part):
@@ -104,7 +134,7 @@ def preprocess_and_filter_dataset_with_exact_deduplication(
         original_text = example.get("text", "")
         file_identifier = example.get("file", "unknown_file")
 
-        cleaned_text = clean_text_advanced(original_text)
+        cleaned_text = clean_text(original_text)
         truncated_text_for_processing = smart_truncate_text(
             cleaned_text,
             tokenizer_instance,
@@ -148,7 +178,7 @@ def get_simple_stats(text, tokenizer_instance):
 
 def calculate_compression_ratios(source, summary):
     return {
-        f"Compression_{k}": summary[k] / source[k] if source[k] > 0 and summary["IsNonEmpty"] else np.nan
+        f"Compression_{k}": source[k] / summary[k]
         for k in ["Chars", "Words", "Tokens"]
     }
 
@@ -164,8 +194,6 @@ def generate_summaries_resumable_full_stats(dataset, model, tokenizer_instance, 
     if os.path.exists(PROCESSED_INDICES_FILE):
         with open(PROCESSED_INDICES_FILE) as f:
             processed_indices = {int(line.strip()) for line in f if line.strip()}
-    processed_indices.add(1545)
-    processed_indices.add(8627)
     print(f"Loaded {len(processed_indices)} already processed indices.")
 
     items_processed = 0

@@ -35,10 +35,11 @@ logger = logging.getLogger(__name__)
 SUMMARIZATION_MODEL_PATH = "fred-t5_summarization_combined"
 SCORING_MODEL_NAME = "google/seahorse-large-q6"
 TRAIN_DATA_PATH = "data/combined_train"
-OUTPUT_PREFERENCE_DATA_FILE = "data/preference_data_conciseness_2.jsonl"
+OUTPUT_PREFERENCE_DATA_FILE = "data/preference_data_conciseness.jsonl"
+GEN_TEMP_SAVE_FILE = "data/generated_summaries_temp.jsonl"  # <<< временный файл генераций
 
-NUM_GENERATIONS_PER_TEXT = 6
-GENERATION_BATCH_SIZE = 45
+NUM_GENERATIONS_PER_TEXT = 7
+GENERATION_BATCH_SIZE = 38
 SUM_GENERATION_CONFIG = GenerationConfig(
     max_length=MAX_TARGET_LENGTH + 1,
     num_beams=NUM_GENERATIONS_PER_TEXT,
@@ -49,7 +50,7 @@ SUM_GENERATION_CONFIG = GenerationConfig(
     num_return_sequences=NUM_GENERATIONS_PER_TEXT,
 )
 
-SCORING_BATCH_SIZE = 120
+SCORING_BATCH_SIZE = 160
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 SEAHORSE_FORMAT_GOOGLE = "premise: {} hypothesis: {}"
@@ -59,36 +60,36 @@ SEAHORSE_ONE_TOKEN = '▁1'
 def truncate_incomplete_sentence(summary_text):
     if not summary_text or not summary_text.strip():
         return ""
-
     sentences = nltk.sent_tokenize(summary_text, language='russian')
     last_sentence = sentences[-1].strip()
-    sentence_end_punct = ('.', '!', '?')
-    if last_sentence.rstrip().endswith(sentence_end_punct):
+    if last_sentence.endswith(('.', '!', '?')):
         truncated_sentences = sentences
     else:
         truncated_sentences = sentences[:-1]
-
-    result = " ".join(truncated_sentences)
-    return result.strip()
+    return " ".join(truncated_sentences).strip()
 
 def preprocess_for_summarization(examples, tokenizer):
-    tokenized = tokenizer(
+    return tokenizer(
         [TASK_PROMPT + doc for doc in examples["text"]],
         max_length=MAX_INPUT_LENGTH,
         truncation=True,
         padding=False, # Defer padding to DataCollator
     )
-    return tokenized
 
 def preprocess_for_scoring(texts, summaries, tokenizer):
     inputs = [SEAHORSE_FORMAT_GOOGLE.format(text, summary) for text, summary in zip(texts, summaries)]
-    tokenized = tokenizer(
+    return tokenizer(
         inputs,
         max_length=MAX_INPUT_LENGTH + MAX_TARGET_LENGTH + 10,
         truncation=True,
         padding=False, # Defer padding to DataCollator
     )
-    return tokenized
+
+# def load_partial_summaries(path):  # <<< для восстановления
+#     if not os.path.exists(path):
+#         return []
+#     with open(path, "r", encoding="utf-8") as f:
+#         return [json.loads(line) for line in f]
 
 if __name__ == "__main__":
     utils.set_seed(SEED)
@@ -101,12 +102,12 @@ if __name__ == "__main__":
         logger.error(f"Error loading dataset from {TRAIN_DATA_PATH}: {e}")
         exit(1)
 
-    subset_size = 15000
-    if len(train_dataset) > subset_size:
-        logger.info(f"Using subset of training data ({subset_size} examples) for preference generation...")
-        # train_dataset = train_dataset.shuffle(seed=SEED).select(range(subset_size))
-        train_dataset = train_dataset.select(range(subset_size))
-        logger.info(f"Using subset of training data: {len(train_dataset)} examples")
+    # subset_size = 150
+    # if len(train_dataset) > subset_size:
+    #     logger.info(f"Using subset of training data ({subset_size} examples) for preference generation...")
+    #     # train_dataset = train_dataset.shuffle(seed=SEED).select(range(subset_size))
+    #     train_dataset = train_dataset.select(range(subset_size))
+    #     logger.info(f"Using subset of training data: {len(train_dataset)} examples")
 
     try:
         sum_tokenizer = AutoTokenizer.from_pretrained(SUMMARIZATION_MODEL_PATH)
@@ -123,7 +124,7 @@ if __name__ == "__main__":
         batched=True,
         fn_kwargs={"tokenizer": sum_tokenizer},
         remove_columns=train_dataset.column_names,
-        num_proc=os.cpu_count()//2 if os.cpu_count() else 1
+        num_proc=os.cpu_count() // 2 if os.cpu_count() else 1
     )
     sum_dataset_tokenized.set_format(type='torch', columns=['input_ids', 'attention_mask'])
 
@@ -136,40 +137,56 @@ if __name__ == "__main__":
     all_generated_summaries = []
     original_texts = train_dataset["text"]
 
-    logger.info(f"Generating {NUM_GENERATIONS_PER_TEXT} summaries per text (batch_size: {GENERATION_BATCH_SIZE})...")
-    for batch in tqdm(sum_dataloader, desc="Generating Summaries"):
-        input_ids = batch['input_ids'].to(DEVICE)
-        attention_mask = batch['attention_mask'].to(DEVICE)
+    # all_generated_summaries = load_partial_summaries(GEN_TEMP_SAVE_FILE)  # <<< восстановление (по желанию)
 
-        with torch.no_grad():
-            generated_ids = sum_model.generate(
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-                generation_config=SUM_GENERATION_CONFIG,
-                return_dict_in_generate=True,
-            )
+    try:
+        logger.info(f"Generating {NUM_GENERATIONS_PER_TEXT} summaries per text (batch_size: {GENERATION_BATCH_SIZE})...")
+        for batch in tqdm(sum_dataloader, desc="Generating Summaries"):
+            input_ids = batch['input_ids'].to(DEVICE)
+            attention_mask = batch['attention_mask'].to(DEVICE)
 
-        decoded_preds_raw = sum_tokenizer.batch_decode(generated_ids.sequences, skip_special_tokens=True)
+            with torch.no_grad():
+                generated_ids = sum_model.generate(
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                    generation_config=SUM_GENERATION_CONFIG,
+                    return_dict_in_generate=True,
+                )
 
-        truncated_preds = [truncate_incomplete_sentence(pred) for pred in decoded_preds_raw]
+            decoded_preds_raw = sum_tokenizer.batch_decode(generated_ids.sequences, skip_special_tokens=True)
+            truncated_preds = [truncate_incomplete_sentence(pred) for pred in decoded_preds_raw]
 
-        batch_size = input_ids.shape[0]
-        generated_summaries_per_text_batch = [
-            truncated_preds[j * NUM_GENERATIONS_PER_TEXT : (j + 1) * NUM_GENERATIONS_PER_TEXT]
-            for j in range(batch_size)
-        ]
-        all_generated_summaries.extend(generated_summaries_per_text_batch)
+            batch_size = input_ids.shape[0]
+            generated_summaries_per_text_batch = [
+                truncated_preds[j * NUM_GENERATIONS_PER_TEXT : (j + 1) * NUM_GENERATIONS_PER_TEXT]
+                for j in range(batch_size)
+            ]
+            all_generated_summaries.extend(generated_summaries_per_text_batch)
 
-        del input_ids, attention_mask, generated_ids, decoded_preds_raw, truncated_preds
-        gc.collect()
-        torch.cuda.empty_cache()
+            with open(GEN_TEMP_SAVE_FILE, "a", encoding="utf-8") as f:
+                for summaries in generated_summaries_per_text_batch:
+                    f.write(json.dumps(summaries, ensure_ascii=False) + "\n")
+
+            del input_ids, attention_mask, generated_ids, decoded_preds_raw, truncated_preds
+            gc.collect()
+            torch.cuda.empty_cache()
+
+    except Exception as e:
+        logger.error(f"Generation interrupted: {e}")
+        logger.info("Attempting to save intermediate results...")
+        try:
+            if all_generated_summaries:
+                with open("data/generated_summaries_backup.jsonl", "w", encoding="utf-8") as f:
+                    for summaries in all_generated_summaries:
+                        f.write(json.dumps(summaries, ensure_ascii=False) + "\n")
+                logger.info("Intermediate summaries saved.")
+        except Exception as inner_e:
+            logger.error(f"Failed to save intermediate summaries: {inner_e}")
+        raise e
 
     logger.info(f"Finished generating summaries for {len(all_generated_summaries)} texts.")
 
-    del sum_model
-    del sum_tokenizer
-    del sum_dataloader
-    del sum_dataset_tokenized
+    del sum_model, sum_tokenizer, sum_dataloader, sum_dataset_tokenized
     gc.collect()
     torch.cuda.empty_cache()
     logger.info("Summarization model unloaded. GPU memory freed.")
@@ -198,7 +215,7 @@ if __name__ == "__main__":
         lambda examples: preprocess_for_scoring(examples["text"], examples["summary"], score_tokenizer),
         batched=True,
         remove_columns=scoring_dataset.column_names,
-        num_proc=os.cpu_count()//2 if os.cpu_count() else 1
+        num_proc=os.cpu_count() // 2 if os.cpu_count() else 1
     )
     scoring_dataset_tokenized.set_format(type='torch', columns=['input_ids', 'attention_mask'])
 
@@ -223,10 +240,8 @@ if __name__ == "__main__":
                 output_scores=True,
             )
             logits = outputs["scores"][0]
-
             logit_for_0 = logits[:, seahorse_zero_token_id]
             logit_for_1 = logits[:, seahorse_one_token_id]
-
             scores = torch.sigmoid(logit_for_1 - logit_for_0).cpu().numpy()
             all_scores_flat.extend(scores)
 
@@ -236,11 +251,7 @@ if __name__ == "__main__":
 
     logger.info("Finished scoring summaries.")
 
-    del score_model
-    del score_tokenizer
-    del scoring_dataloader
-    del scoring_dataset
-    del scoring_dataset_tokenized
+    del score_model, score_tokenizer, scoring_dataloader, scoring_dataset, scoring_dataset_tokenized
     gc.collect()
     torch.cuda.empty_cache()
     logger.info("Scoring model unloaded. GPU memory freed.")
@@ -251,33 +262,28 @@ if __name__ == "__main__":
     for i in tqdm(range(len(original_texts)), desc="Creating Preference Pairs"):
         text = original_texts[i]
         summaries = all_generated_summaries[i]
-        # Get scores for this text's summaries from the flattened list
         scores_for_text = all_scores_flat[score_idx : score_idx + NUM_GENERATIONS_PER_TEXT]
         score_idx += NUM_GENERATIONS_PER_TEXT
 
         summaries_with_scores = list(zip(summaries, scores_for_text))
-
         summaries_with_scores.sort(key=lambda x: x[1])
 
         rejected_summary, rejected_score = summaries_with_scores[0]
         chosen_summary, chosen_score = summaries_with_scores[-1]
 
-        scores = [i for _, i in summaries_with_scores]
-
         if chosen_summary != rejected_summary and (chosen_score - rejected_score) > 0.03:
-             preference_data.append({
-                 "text": text,
-                 "chosen": chosen_summary,
-                 "rejected": rejected_summary,
-                 "chosen_score": float(chosen_score),
-                 "rejected_score": float(rejected_score),
-             })
+            preference_data.append({
+                "text": text,
+                "chosen": chosen_summary,
+                "rejected": rejected_summary,
+                "chosen_score": float(chosen_score),
+                "rejected_score": float(rejected_score),
+            })
         # else:
         #     if chosen_summary == rejected_summary:
         #         logger.info(f"{i} identical summaries.")
         #     else:
         #         logger.info(f"{i} identical/similar summaries or scores {scores}")
-
 
     logger.info(f"Generated {len(preference_data)} preference pairs.")
 
@@ -287,6 +293,4 @@ if __name__ == "__main__":
         for pair in preference_data:
             f.write(json.dumps(pair, ensure_ascii=False) + "\n")
     logger.info("Preference data saved.")
-
     logger.info("Preference data generation complete.")
-
