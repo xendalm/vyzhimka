@@ -26,6 +26,7 @@ from common.const import (
     SEED
 )
 from common import utils
+from transformers.trainer_utils import set_seed
 
 logging.basicConfig(
     level=logging.INFO,
@@ -34,21 +35,33 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-MODEL_PATH = "fred-t5_summarization_dpo"
+import argparse
+parser = argparse.ArgumentParser()
+parser.add_argument('--mode', type=str, choices=['nat', 'synth'], required=True, help="Evaluation mode: 'natural' or 'synth'")
+parser.add_argument('--model_path', type=str, required=True, help="Path to the model")
+parser.add_argument('--eval_name', type=str, required=True, help="Evaluation name (used for file naming)")
+args = parser.parse_args()
+
+mode = args.mode
+MODEL_PATH = args.model_path
+EVAL_NAME = args.eval_name
+
+if mode == "nat":
+    TEST_DATA_PATH = "data/filtered_test"
+    OUTPUT_DIR = "./eval/res"
+else:
+    TEST_DATA_PATH = "data/synth_test"
+    OUTPUT_DIR = "./eval/res_synth"
+
+OUTPUT_FILE = OUTPUT_DIR + f"/metrics_{EVAL_NAME}.json"
+PREDICTIONS_FILE = OUTPUT_DIR + f"/output_{EVAL_NAME}.json"
 TOKENIZER_PATH = MODEL_PATH
-# TEST_DATA_PATH = "data/synth_test"
-TEST_DATA_PATH = "data/filtered_test"
-# OUTPUT_DIR = "./eval/synth_res"
-OUTPUT_DIR = "./eval/results"
-OUTPUT_FILE = OUTPUT_DIR+"/evaluation_metrics_dpo_combined_1.json"
-PREDICTIONS_FILE = OUTPUT_DIR+"/predictions_output_dpo_combined_!.json"
 
 EVAL_BATCH_SIZE = 64
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 LABSE_MODEL_NAME = 'sentence-transformers/LaBSE'
 
 GENERATION_CONFIG = GenerationConfig(
-    # length_penalty=-2,
     max_length=MAX_TARGET_LENGTH + 1,
     num_beams=NUM_BEAMS,
     min_length=MIN_GENERATION_LENGTH,
@@ -67,6 +80,7 @@ def preprocess_for_generation(examples, tokenizer):
     return tokenized
 
 if __name__ == "__main__":
+    set_seed(SEED)
     utils.set_seed(SEED)
 
     tokenizer = AutoTokenizer.from_pretrained(TOKENIZER_PATH)
@@ -119,6 +133,23 @@ if __name__ == "__main__":
 
     cleaned_predictions = [p.strip() for p in all_predictions]
     cleaned_references = [r.strip() for r in all_references]
+
+    # logger.info("Filtering for compression (summary shorter than input)...")
+    # initial_count = len(cleaned_predictions)
+
+    # filtered_data = [
+    #     (pred, ref, inp)
+    #     for pred, ref, inp in zip(cleaned_predictions, cleaned_references, all_input_texts)
+    #     if len(tokenizer(pred)["input_ids"]) < len(tokenizer(inp)["input_ids"])
+    # ]
+    filtered_input_texts = all_input_texts
+    # if filtered_data:
+    #     cleaned_predictions, cleaned_references, filtered_input_texts = zip(*filtered_data)
+    # else:
+    #     cleaned_predictions, cleaned_references, filtered_input_texts = [], [], []
+
+    # filtered_count = len(cleaned_predictions)
+    # logger.info(f"Remaining after compression filter: {filtered_count} out of {initial_count} ({(filtered_count / initial_count * 100):.2f}%)")
 
     try:
         rouge = evaluate.load("rouge")
@@ -190,10 +221,13 @@ if __name__ == "__main__":
     results['gen_len_mean'] = np.mean([len(t) for t in pred_tokens])
     results['gen_len_std'] = np.std([len(t) for t in pred_tokens])
 
-
     logger.info("Calculating average compression ratio...")
-    results['compression_ratio_mean'] = np.mean([len(t) / len(r) for t, r in zip(cleaned_predictions, cleaned_references)])
-    results['compression_ratio_std'] = np.std([len(t) / len(r) for t, r in zip(cleaned_predictions, cleaned_references)])
+    pred_token_lens = [len(tokenizer(pred)["input_ids"]) for pred in cleaned_predictions]
+    input_token_lens = [len(tokenizer(inp)["input_ids"]) for inp in filtered_input_texts]
+
+    compression_ratios = [p / i for p, i in zip(pred_token_lens, input_token_lens)]
+    results['compression_ratio_mean'] = np.mean(compression_ratios)
+    results['compression_ratio_std'] = np.std(compression_ratios)
 
     metrics_time = time() - metrics_start_time
     logger.info(f"Metrics time: {metrics_time:.2f} seconds.")

@@ -1,9 +1,7 @@
 import os
 import logging
 import gc
-import numpy as np
 import torch
-import nltk
 from common.const import (
     TASK_PROMPT,
     MAX_INPUT_LENGTH,
@@ -22,7 +20,6 @@ from transformers import (
     Seq2SeqTrainingArguments,
     DataCollatorForSeq2Seq,
 )
-import evaluate
 
 logging.basicConfig(
     level=logging.INFO,
@@ -32,10 +29,10 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 MODEL_NAME = "ai-forever/FRED-T5-large"
-OUTPUT_DIR = "fred-t5_summarization_combined"
-TRAINING_DATA = "./data/combined_data"
+OUTPUT_DIR = "fred-t5_synth"
+TRAINING_DATA = "./data/synth_train"
 
-NUM_EPOCHS = 6
+NUM_EPOCHS = 8
 TRAIN_BATCH_SIZE = 8
 GRADIENT_ACCUMULATION_STEPS = 6
 EVAL_BATCH_SIZE = 64
@@ -44,7 +41,7 @@ WEIGHT_DECAY = 0.015
 SAVE_TOTAL_LIMIT = 2
 REPORT_TO = "tensorboard"
 WARMUP_RATIO = 0.1
-SCHEDULER_TYPE = "linear"
+SCHEDULER_TYPE = "cosine"
 
 use_subset = False
 subset_train_size = 10000
@@ -66,34 +63,11 @@ def preprocess(examples, tokenizer):
     inputs["labels"] = targets["input_ids"]
     return inputs
 
-
-rouge_metric = evaluate.load("rouge")
-def compute_metrics(eval_preds):
-    predictions, labels = eval_preds
-    # Replace -100 in the labels as we can't decode them.
-    predictions = np.where(predictions != -100, predictions, tokenizer.pad_token_id)
-    labels = np.where(labels != -100, labels, tokenizer.pad_token_id)
-
-    decoded_preds = tokenizer.batch_decode(predictions, skip_special_tokens=True)
-    decoded_labels = tokenizer.batch_decode(labels, skip_special_tokens=True)
-
-    decoded_preds = ["\n".join(nltk.sent_tokenize(pred.strip())) for pred in decoded_preds]
-    decoded_labels = ["\n".join(nltk.sent_tokenize(label.strip())) for label in decoded_labels]
-
-    result = rouge_metric.compute(predictions=decoded_preds, references=decoded_labels)
-    result = {key: value for key, value in result.items()}
-
-    prediction_lens = [np.count_nonzero(pred != tokenizer.pad_token_id) for pred in predictions]
-    result["gen_len"] = np.mean(prediction_lens)
-
-    return {k: round(v, 3) for k, v in result.items()}
-
-
 if __name__ == "__main__":
     utils.set_seed(SEED)
 
     data = load_from_disk(TRAINING_DATA)
-    datasets = data.train_test_split(test_size=0.05, seed=42, shuffle=True)
+    datasets = data.train_test_split(test_size=0.05, seed=SEED, shuffle=True)
     datasets["validation"] = datasets.pop("test")
 
     logger.info(f"Datasets: {datasets}")
@@ -123,8 +97,8 @@ if __name__ == "__main__":
     steps_per_epoch = (total_train_samples + effective_batch_size - 1) // effective_batch_size
     total_training_steps = steps_per_epoch * NUM_EPOCHS
 
-    eval_steps = max(100, steps_per_epoch // 10)
-    save_steps = eval_steps * 2 # Сохраняем реже, чем оцениваем
+    eval_steps = max(200, steps_per_epoch // 10)
+    save_steps = eval_steps
     logging_steps = max(50, eval_steps // 10) # Логируем чаще
 
     logger.info(f"Effective batch size: {effective_batch_size}")
@@ -203,3 +177,26 @@ if __name__ == "__main__":
     del model, trainer, data_collator
     gc.collect()
     torch.cuda.empty_cache()
+
+
+
+# rouge_metric = evaluate.load("rouge")
+# def compute_metrics(eval_preds):
+#     predictions, labels = eval_preds
+#     # Replace -100 in the labels as we can't decode them.
+#     predictions = np.where(predictions != -100, predictions, tokenizer.pad_token_id)
+#     labels = np.where(labels != -100, labels, tokenizer.pad_token_id)
+
+#     decoded_preds = tokenizer.batch_decode(predictions, skip_special_tokens=True)
+#     decoded_labels = tokenizer.batch_decode(labels, skip_special_tokens=True)
+
+#     decoded_preds = ["\n".join(nltk.sent_tokenize(pred.strip())) for pred in decoded_preds]
+#     decoded_labels = ["\n".join(nltk.sent_tokenize(label.strip())) for label in decoded_labels]
+
+#     result = rouge_metric.compute(predictions=decoded_preds, references=decoded_labels)
+#     result = {key: value for key, value in result.items()}
+
+#     prediction_lens = [np.count_nonzero(pred != tokenizer.pad_token_id) for pred in predictions]
+#     result["gen_len"] = np.mean(prediction_lens)
+
+#     return {k: round(v, 3) for k, v in result.items()}

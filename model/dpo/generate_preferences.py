@@ -32,14 +32,14 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-SUMMARIZATION_MODEL_PATH = "fred-t5_summarization_combined"
+SUMMARIZATION_MODEL_PATH = "fred-t5_synth"
 SCORING_MODEL_NAME = "google/seahorse-large-q6"
-TRAIN_DATA_PATH = "data/combined_train"
+TRAIN_DATA_PATH = "data/synth_train"
 OUTPUT_PREFERENCE_DATA_FILE = "data/preference_data_conciseness.jsonl"
-GEN_TEMP_SAVE_FILE = "data/generated_summaries_temp.jsonl"  # <<< временный файл генераций
+GEN_TEMP_SAVE_FILE = "data/generated_summaries_temp.jsonl"
 
 NUM_GENERATIONS_PER_TEXT = 7
-GENERATION_BATCH_SIZE = 38
+GENERATION_BATCH_SIZE = 32
 SUM_GENERATION_CONFIG = GenerationConfig(
     max_length=MAX_TARGET_LENGTH + 1,
     num_beams=NUM_GENERATIONS_PER_TEXT,
@@ -50,7 +50,7 @@ SUM_GENERATION_CONFIG = GenerationConfig(
     num_return_sequences=NUM_GENERATIONS_PER_TEXT,
 )
 
-SCORING_BATCH_SIZE = 160
+SCORING_BATCH_SIZE = 128
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 SEAHORSE_FORMAT_GOOGLE = "premise: {} hypothesis: {}"
@@ -85,7 +85,7 @@ def preprocess_for_scoring(texts, summaries, tokenizer):
         padding=False, # Defer padding to DataCollator
     )
 
-# def load_partial_summaries(path):  # <<< для восстановления
+# def load_partial_summaries(path):
 #     if not os.path.exists(path):
 #         return []
 #     with open(path, "r", encoding="utf-8") as f:
@@ -102,7 +102,7 @@ if __name__ == "__main__":
         logger.error(f"Error loading dataset from {TRAIN_DATA_PATH}: {e}")
         exit(1)
 
-    # subset_size = 150
+    # subset_size = 200
     # if len(train_dataset) > subset_size:
     #     logger.info(f"Using subset of training data ({subset_size} examples) for preference generation...")
     #     # train_dataset = train_dataset.shuffle(seed=SEED).select(range(subset_size))
@@ -137,7 +137,7 @@ if __name__ == "__main__":
     all_generated_summaries = []
     original_texts = train_dataset["text"]
 
-    # all_generated_summaries = load_partial_summaries(GEN_TEMP_SAVE_FILE)  # <<< восстановление (по желанию)
+    # all_generated_summaries = load_partial_summaries(GEN_TEMP_SAVE_FILE)
 
     try:
         logger.info(f"Generating {NUM_GENERATIONS_PER_TEXT} summaries per text (batch_size: {GENERATION_BATCH_SIZE})...")

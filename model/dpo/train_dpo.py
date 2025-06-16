@@ -20,17 +20,17 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-BASE_MODEL_PATH = "fred-t5_summarization_combined"
-REF_MODEL_PATH = "fred-t5_summarization_combined"
-PREFERENCE_DATA_FILE = "data/preference_data_conciseness_combined.jsonl"
-OUTPUT_DIR = "fred-t5_summarization_dpo"
+BASE_MODEL_PATH = "fred-t5_synth"
+REF_MODEL_PATH = "fred-t5_synth"
+PREFERENCE_DATA_FILE = "data/preference_data_conciseness.jsonl"
+OUTPUT_DIR = "fred-t5_dpo"
 
 DPO_BETA = 0.1
 NUM_EPOCHS = 4
 TRAIN_BATCH_SIZE = 8
 EVAL_BATCH_SIZE = 64
 GRADIENT_ACCUMULATION_STEPS = 2
-LEARNING_RATE = 5e-7
+LEARNING_RATE = 3e-7
 WEIGHT_DECAY = 0.0
 WARMUP_RATIO = 0.05
 SAVE_TOTAL_LIMIT = 2
@@ -101,6 +101,9 @@ if __name__ == "__main__":
         seed=SEED,
         data_seed=SEED,
         logging_dir=f"{OUTPUT_DIR}/logs",
+        load_best_model_at_end=True,
+        metric_for_best_model="eval_rewards/accuracies",
+        greater_is_better=True,
         # max_prompt_length=MAX_INPUT_LENGTH,
         # max_completion_length=MAX_TARGET_LENGTH,
         remove_unused_columns=False,  # критично для DPOTrainer
