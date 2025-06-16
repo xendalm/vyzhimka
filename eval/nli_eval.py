@@ -27,10 +27,8 @@ ENTAILMENT_LABEL_ID = label2id['entailment']
 print(f"Model labels: {model.config.id2label}")
 print(f"entailment label index: {ENTAILMENT_LABEL_ID}")
 
-
 def split_into_sentences(text: str) -> list[str]:
     return [s.text for s in sentenize(text) if s.text.strip()]
-
 
 def calculate_summac_zs_score(source_text: str, summary_text: str) -> float:
     """
@@ -47,16 +45,16 @@ def calculate_summac_zs_score(source_text: str, summary_text: str) -> float:
 
     for summary_sent in summary_sentences:
         premise_hypothesis_pairs = [(src_sent, summary_sent) for src_sent in source_sentences]
-
+        
         with torch.inference_mode():
             inputs = tokenizer(premise_hypothesis_pairs,
                                padding=True,
                                truncation=True,
-                               max_length=512,  # Максимальная длина для этой модели
+                               max_length=512, # Максимальная длина для этой модели
                                return_tensors="pt").to(device)
 
             logits = model(**inputs).logits
-
+            
             probabilities = torch.softmax(logits, dim=-1)
             entailment_probs = probabilities[:, ENTAILMENT_LABEL_ID].cpu().numpy()
 
@@ -65,7 +63,6 @@ def calculate_summac_zs_score(source_text: str, summary_text: str) -> float:
 
     final_score = float(np.mean(max_entailment_scores)) if max_entailment_scores else 0.0
     return final_score
-
 
 factuality_results = {}
 
