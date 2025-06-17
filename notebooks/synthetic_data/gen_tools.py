@@ -5,6 +5,7 @@ from datasets import Dataset
 import google.generativeai as genai
 from tqdm.auto import tqdm
 import os
+from dotenv import load_dotenv
 import json
 import time
 from nltk.tokenize import word_tokenize
@@ -15,7 +16,8 @@ TASK_PROMPT = "<LM> Сократи текст: "
 FRED_T5_MODEL_NAME = "ai-forever/FRED-T5-large"
 INPUT_TOKEN_LIMIT_FRED_T5 = 1024
 
-GEMINI_API_KEY = ""
+load_dotenv()
+GEMINI_API_KEY = os.getenv("GOOGLE_API_KEY")
 GEMINI_MODEL_NAME_PRIMARY = "gemini-2.0-flash"
 MIN_TEXT_TOKENS_FOR_SUMMARIZATION = 100
 
