@@ -2,93 +2,101 @@ import json
 import os
 from tqdm import tqdm
 import numpy as np
-from razdel import sentenize
-import torch
-from transformers import AutoTokenizer, AutoModelForSequenceClassification
+from razdel import tokenize as razdel_tokenize
+import re
+from collections import deque
 
 output_paths = [
-    "eval/res_synth/output_combined.json",
-    "eval/res_synth/output_natural_2.json",
-    "eval/res_synth/output_synth.json",
-    "eval/res_synth/output_synth_DPO.json",
+    "eval/res/output_baseline_2.json",
+    "eval/res/output_combined.json",
+    "eval/res/output_natural_2.json",
+    "eval/res/output_synth.json",
+    "eval/res/output_synth_DPO.json",
 ]
+OUTPUT_FILE = "eval/plagiarism/plagiarism.json"
 
-NLI_MODEL_NAME = 'cointegrated/rubert-base-cased-nli-twoway'
-OUTPUT_FILE = "eval/factuality_nli_scores_SYNTH.json"
+def normalize_text(text: str) -> str:
+    text = text.lower()
+    text = re.sub(r"[^\w\s]", "", text, flags=re.UNICODE)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
 
-device = "cuda" if torch.cuda.is_available() else "cpu"
+def tokenize_words(text: str) -> list[str]:
+    return [token.text for token in razdel_tokenize(normalize_text(text))]
 
-tokenizer = AutoTokenizer.from_pretrained(NLI_MODEL_NAME)
-model = AutoModelForSequenceClassification.from_pretrained(NLI_MODEL_NAME).to(device)
-model.eval()
+def get_ngrams(tokens: list[str], n: int) -> set[tuple[str, ...]]:
+    if len(tokens) < n:
+        return set()
+    
+    ngrams = set()
+    window = deque(tokens[:n], maxlen=n)
+    ngrams.add(tuple(window))
+    
+    for i in range(n, len(tokens)):
+        window.append(tokens[i])
+        ngrams.add(tuple(window))
+        
+    return ngrams
 
-label2id = {v.lower(): k for k, v in model.config.id2label.items()}
-ENTAILMENT_LABEL_ID = label2id['entailment']
-print(f"Model labels: {model.config.id2label}")
-print(f"entailment label index: {ENTAILMENT_LABEL_ID}")
+def jaccard_similarity(tokens1: set[str], tokens2: set[str]) -> float:
+    union = tokens1 | tokens2
+    intersection = tokens1 & tokens2
+    return len(intersection) / len(union) if union else 0.0
 
-
-def split_into_sentences(text: str) -> list[str]:
-    return [s.text for s in sentenize(text) if s.text.strip()]
-
-
-def calculate_summac_zs_score(source_text: str, summary_text: str) -> float:
-    """
-    SUMMAC-ZS
-    https://arxiv.org/abs/2111.09525
-    """
-    source_sentences = split_into_sentences(source_text)
-    summary_sentences = split_into_sentences(summary_text)
-
-    if not summary_sentences or not source_sentences:
+def calculate_containment_score(source_tokens: set, summary_tokens: set) -> float:
+    if not summary_tokens:
         return 0.0
+    
+    intersection = source_tokens & summary_tokens
+    return len(intersection) / len(summary_tokens)
 
-    max_entailment_scores = []
+N_GRAM_SIZE = 3 
 
-    for summary_sent in summary_sentences:
-        premise_hypothesis_pairs = [(src_sent, summary_sent) for src_sent in source_sentences]
+plagiarism_results = {}
 
-        with torch.inference_mode():
-            inputs = tokenizer(premise_hypothesis_pairs,
-                               padding=True,
-                               truncation=True,
-                               max_length=512,  # Максимальная длина для этой модели
-                               return_tensors="pt").to(device)
-
-            logits = model(**inputs).logits
-
-            probabilities = torch.softmax(logits, dim=-1)
-            entailment_probs = probabilities[:, ENTAILMENT_LABEL_ID].cpu().numpy()
-
-        max_score = np.max(entailment_probs)
-        max_entailment_scores.append(max_score)
-
-    final_score = float(np.mean(max_entailment_scores)) if max_entailment_scores else 0.0
-    return final_score
-
-
-factuality_results = {}
-
-for path in tqdm(output_paths, desc="Processing outputs for factuality"):
+for path in tqdm(output_paths, desc="Processing outputs"):
     with open(path, 'r', encoding='utf-8') as f:
         data = json.load(f)
 
-    nli_scores = []
-    for entry in tqdm(data, desc=f"Analyzing {os.path.basename(path)}", leave=False):
+    jaccard_scores = []
+    word_containment_scores = []
+    ngram_containment_scores = []
+
+    for entry in data:
         input_text = entry['input_text']
         predicted_summary = entry['predicted_summary']
 
-        score = calculate_summac_zs_score(input_text, predicted_summary)
-        nli_scores.append(score)
+        source_words = tokenize_words(input_text)
+        summary_words = tokenize_words(predicted_summary)
 
-    mean_nli = float(np.mean(nli_scores)) if nli_scores else 0.0
-    std_nli = float(np.std(nli_scores)) if nli_scores else 0.0
+        source_word_set = set(source_words)
+        summary_word_set = set(summary_words)
+        
+        jaccard_scores.append(jaccard_similarity(source_word_set, summary_word_set))
 
-    factuality_results[os.path.basename(path)] = {
-        "mean_summac_zs_score": round(mean_nli, 4),
-        "std_summac_zs_score": round(std_nli, 4),
-        "num_samples": len(nli_scores)
+        word_containment_scores.append(calculate_containment_score(source_word_set, summary_word_set))
+
+        source_ngrams = get_ngrams(source_words, N_GRAM_SIZE)
+        summary_ngrams = get_ngrams(summary_words, N_GRAM_SIZE)
+        ngram_containment_scores.append(calculate_containment_score(source_ngrams, summary_ngrams))
+
+    
+    def calculate_stats(scores: list):
+        if not scores:
+            return 0.0, 0.0
+        return float(np.mean(scores)), float(np.std(scores))
+
+    mean_jaccard, std_jaccard = calculate_stats(jaccard_scores)
+    mean_word_containment, std_word_containment = calculate_stats(word_containment_scores)
+    mean_ngram_containment, std_ngram_containment = calculate_stats(ngram_containment_scores)
+
+
+    plagiarism_results[os.path.basename(path)] = {
+        "jaccard_similarity": {"mean": round(mean_jaccard, 4), "std": round(std_jaccard, 4)},
+        "word_containment_score": {"mean": round(mean_word_containment, 4), "std": round(std_word_containment, 4)},
+        f"{N_GRAM_SIZE}-gram_containment_score": {"mean": round(mean_ngram_containment, 4), "std": round(std_ngram_containment, 4)},
+        "num_samples": len(data)
     }
 
 with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
-    json.dump(factuality_results, f, ensure_ascii=False, indent=4)
+    json.dump(plagiarism_results, f, ensure_ascii=False, indent=4)

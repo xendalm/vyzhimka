@@ -5,16 +5,23 @@ import numpy as np
 from razdel import sentenize
 import torch
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
+from common import utils
+from common.const import (
+    SEED
+)
+
+utils.set_seed(SEED)
 
 output_paths = [
-    "eval/res_synth/output_combined.json",
-    "eval/res_synth/output_natural_2.json",
-    "eval/res_synth/output_synth.json",
-    "eval/res_synth/output_synth_DPO.json",
+    "eval/res/output_baseline_2.json",
+    "eval/res/output_combined.json",
+    "eval/res/output_natural_2.json",
+    "eval/res/output_synth.json",
+    "eval/res/output_synth_DPO.json",
 ]
 
 NLI_MODEL_NAME = 'cointegrated/rubert-base-cased-nli-twoway'
-OUTPUT_FILE = "eval/factuality_nli_scores_SYNTH.json"
+OUTPUT_FILE = "eval/factuality/factuality.json"
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 

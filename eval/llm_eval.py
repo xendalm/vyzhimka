@@ -25,22 +25,22 @@ SAFETY_SETTINGS = [
         "HARM_CATEGORY_DANGEROUS_CONTENT"
     ]
 ]
-DELAY_BETWEEN_REQUESTS = 3
+DELAY_BETWEEN_REQUESTS = 4
 MAX_RETRIES = 3
 RETRY_DELAY_S = 10
 
 PROMPT_TEMPLATE = Template("""
-ВЫ — ЭКСПЕРТ-ОЦЕНЩИК КАЧЕСТВА СУММАРИЗАЦИЙ.
-Пожалуйста, оцените целым числом качество следующих суммаризаций текста (генераций), используя шкалу Ликерта от 1 до 10, где 1 означает "очень плохая суммаризация", а 10 означает "отличная суммаризация".
+Вы эксперт-оценщик качества суммаризаций. 
+Оцените целым числом качество следующих суммаризаций текста (генераций), используя шкалу Ликерта от 1 до 10, где 1 означает "очень плохая суммаризация", а 10 означает "отличная суммаризация". 
 
 Оценка должна учитывать:
 - сохранение смысла исходного текста,
-- степень сокращения текста (саммари не должно быть длиннее исходного текста),
+- саммари должно быть заметно короче исходного текста,
 - точность переданных фактов,
 - логическую связность (нет лишнего),
 - полноту изложения.
 
-Также, пожалуйста, обоснуйте каждую оценку, избегая любой потенциальной предвзятости и гарантируя, что порядок, в котором были представлены ответы, не повлияет на ваше суждение.
+Также обоснуйте каждую оценку, избегая любой потенциальной предвзятости и гарантируя, что порядок, в котором были представлены ответы, не повлияет на ваше суждение.
 Для каждой генерации необходимо вернуть:
 - целочисленную оценку от 1 до 10,
 - краткий комментарий.
@@ -54,8 +54,8 @@ PROMPT_TEMPLATE = Template("""
       "commentary": "Саммари точно передает основную мысль, краткое и без ошибок."
     },
     {
-      "score": 5,
-      "commentary": "Присутствуют фактические неточности и повторы."
+      "score": 3,
+      "commentary": "Присутствуют фактические неточности и повторы. Саммари длиннее исходного текста."
     }
   ]
 }
@@ -106,7 +106,8 @@ def query_model(model, input_text, reference_summary, summaries):
             result = json.loads(response.text)
             if len(result.get("evaluations", [])) == len(all_summaries):
                 return result["evaluations"]
-        except Exception:
+        except Exception as e:
+            print(f"Failed to generate response: {e}")
             time.sleep(RETRY_DELAY_S * (attempt + 1))
 
     print("Failed after retries")
@@ -190,12 +191,13 @@ def main(input_files, output_dir):
 
 if __name__ == '__main__':
     input_files = [
-        "eval/res_synth/output_natural_2.json",
-        "eval/res_synth/output_synth.json",
-        "eval/res_synth/output_combined.json",
-        "eval/res_synth/output_synth_DPO.json",
+        "eval/res/output_baseline_2.json",
+        "eval/res/output_natural_2.json",
+        "eval/res/output_synth.json",
+        "eval/res/output_combined.json",
+        "eval/res/output_synth_DPO.json",
     ]
 
-    output_dir = "llm_eval_synth"
+    output_dir = "eval/llm/llm_eval_with_baseline"
 
     main(input_files, output_dir)
